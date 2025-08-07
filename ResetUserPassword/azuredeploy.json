@@ -1,0 +1,355 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "type": "string",
+            "defaultValue": "ResetUserPassword",
+            "metadata": {
+                "description": "Name of the Logic App"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Azure region for the Logic App"
+            }
+        },
+        "tenantId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure AD Tenant ID"
+            }
+        },
+        "clientId": {
+            "type": "string",
+            "metadata": {
+                "description": "Client ID for Microsoft Graph API authentication"
+            }
+        },
+        "workspaceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure Sentinel Workspace ID (optional)"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "[parameters('location')]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "Tenant_ID": {
+                            "defaultValue": "[parameters('tenantId')]",
+                            "type": "String"
+                        },
+                        "Client_ID": {
+                            "defaultValue": "[parameters('clientId')]",
+                            "type": "String"
+                        },
+                        "Workspace_ID": {
+                            "defaultValue": "[parameters('workspaceId')]",
+                            "type": "String"
+                        },
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "When_a_HTTP_request_is_received": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "userPrincipalName": {
+                                            "type": "string"
+                                        },
+                                        "incident_id": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Get_secret": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['keyvault']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/secrets/@{encodeURIComponent('MDR-ResetUserPassword')}/value"
+                            },
+                            "runAfter": {}
+                        },
+                        "InitializeCounter": {
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "Counter",
+                                        "type": "Integer",
+                                        "value": 0
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "Get_secret": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "InitializeRandomPassword": {
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "RandomPassword",
+                                        "type": "String",
+                                        "value": ""
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "InitializeCounter": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "InitializeCharacterSet": {
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "CharacterSet",
+                                        "type": "String",
+                                        "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*"
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                                "InitializeRandomPassword": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "AppendUppercaseLetter": {
+                            "type": "AppendToStringVariable",
+                            "inputs": {
+                                "name": "RandomPassword",
+                                "value": "@{substring(variables('CharacterSet'), rand(0, 26), 1)}"
+                            },
+                            "runAfter": {
+                                "InitializeCharacterSet": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "AppendLowercaseLetter": {
+                            "type": "AppendToStringVariable",
+                            "inputs": {
+                                "name": "RandomPassword",
+                                "value": "@{substring(variables('CharacterSet'), add(rand(0, 26), 26), 1)}"
+                            },
+                            "runAfter": {
+                                "AppendUppercaseLetter": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "AppendNumber": {
+                            "type": "AppendToStringVariable",
+                            "inputs": {
+                                "name": "RandomPassword",
+                                "value": "@{substring(variables('CharacterSet'), add(rand(0, 10), 52), 1)}"
+                            },
+                            "runAfter": {
+                                "AppendLowercaseLetter": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "AppendSpecialCharacter": {
+                            "type": "AppendToStringVariable",
+                            "inputs": {
+                                "name": "RandomPassword",
+                                "value": "@{substring(variables('CharacterSet'), add(rand(0, 8), 62), 1)}"
+                            },
+                            "runAfter": {
+                                "AppendNumber": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Until": {
+                            "type": "Until",
+                            "actions": {
+                                "AppendRandomPassword": {
+                                    "type": "AppendToStringVariable",
+                                    "inputs": {
+                                        "name": "RandomPassword",
+                                        "value": "@{substring(variables('CharacterSet'), rand(0, length(variables('CharacterSet'))), 1)}"
+                                    }
+                                },
+                                "Increment_variable": {
+                                    "type": "IncrementVariable",
+                                    "inputs": {
+                                        "name": "Counter",
+                                        "value": 1
+                                    },
+                                    "runAfter": {
+                                        "AppendRandomPassword": [
+                                            "Succeeded"
+                                        ]
+                                    }
+                                }
+                            },
+                            "expression": "@equals(variables('Counter'), 8)",
+                            "limit": {
+                                "count": 8,
+                                "timeout": "PT1H"
+                            },
+                            "runAfter": {
+                                "AppendSpecialCharacter": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "GraphAPI_Login": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://login.microsoftonline.com/@{parameters('Tenant_ID')}/oauth2/v2.0/token",
+                                "method": "POST",
+                                "headers": {
+                                    "Content-Type": "application/x-www-form-urlencoded"
+                                },
+                                "queries": {
+                                    "client_id": "@{parameters('Client_ID')}",
+                                    "client_secret": "@{body('Get_secret')?['value']}",
+                                    "grant_type": "client_credentials",
+                                    "scope": "https://graph.microsoft.com/.default"
+                                },
+                                "body": "client_id=@{parameters('Client_ID')}&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&client_secret=@{body('Get_secret')?['value']}&grant_type=client_credentials"
+                            },
+                            "runAfter": {
+                                "Until": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "Reset_Password": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://graph.microsoft.com/v1.0/users/@{triggerBody()?['userPrincipalName']}",
+                                "method": "PATCH",
+                                "headers": {
+                                    "Authorization": "Bearer @{body('GraphAPI_Login')['access_token']}",
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "passwordProfile": {
+                                        "forceChangePasswordNextSignIn": true,
+                                        "password": "@variables('RandomPassword')"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "GraphAPI_Login": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "Revoke_SignIn_Sessions": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://graph.microsoft.com/v1.0/users/@{triggerBody()?['userPrincipalName']}/invalidateAllRefreshTokens",
+                                "method": "POST",
+                                "headers": {
+                                    "Authorization": "Bearer @{body('GraphAPI_Login')['access_token']}",
+                                    "Content-Type": "application/json"
+                                }
+                            },
+                            "runAfter": {
+                                "Reset_Password": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "PlaceholderforSubject": {
+                            "type": "Compose",
+                            "inputs": "Conosco - User Password Reset and Sessions Revoked due to Security Incident",
+                            "runAfter": {
+                                "Revoke_SignIn_Sessions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "PlaceHolderforMessage": {
+                            "type": "Compose",
+                            "inputs": "The password for user @{triggerBody()?['userPrincipalName']} has been reset, and all Entra ID sign-in sessions have been revoked as part of Conosco SOC's autoremediation. The new temporary password is: @{variables('RandomPassword')}. The user must change their password at next login.",
+                            "runAfter": {
+                                "PlaceholderforSubject": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Response": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 200,
+                                "body": {
+                                    "status": "success"
+                                }
+                            },
+                            "runAfter": {
+                                "PlaceHolderforMessage": [
+                                    "Succeeded"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {}
+                    }
+                }
+            }
+        }
+    ]
+}
