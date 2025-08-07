@@ -39,12 +39,19 @@ The Logic App uses an Azure AD application to authenticate with the Microsoft Gr
 4. **Add API Permissions**:
    - In the app registration, go to **API permissions** > **Add a permission**.
    - Select **Microsoft Graph** > **Application permissions** and add:
-     - `User.ManageIdentities.All` (for password reset)
-     - `UserAuthenticationMethod.ReadWrite.All` (for session revocation)
+     - `Directory.ReadWrite.All` 
+     - `RoleManagement.ReadWrite.Directory`
+     - User.ReadWrite.All
    - Click **Add permissions**.
 5. **Grant Admin Consent**:
    - In **API permissions**, click **Grant admin consent for <your-tenant>**.
-   - Confirm the consent to allow the app to manage users without user interaction.
+   - Confirm the consent to allow the app to manage users without user interaction.Grant
+6. **Grant Admin Roles to the App**: Assign the necessary admin roles to the application to ensure it has the required permissions to perform its tasks.
+   - In the Azure portal, navigate to **Azure Active Directory** > **Roles and administrators**.
+   - Search for and select the **Password Administrator** role.
+   - Click **Add assignments**, search for your app registration by its name or application ID, and assign the role.
+   - Repeat the process for the **Privileged Authentication Administrator** role.
+   - Confirm that both roles are listed under the app’s **Role assignments** in Azure AD.
 
 ### 2. Identify the Azure Sentinel Workspace ID
 The Logic App requires a `workspaceId` parameter for potential future integration with Azure Sentinel. If you plan to add Sentinel actions later, obtain the workspace ID.
