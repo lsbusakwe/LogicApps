@@ -1,0 +1,218 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "type": "string",
+            "defaultValue": "MachineScan",
+            "metadata": {
+                "description": "Name of the Logic App"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Azure region for the Logic App"
+            }
+        },
+        "tenantId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure AD Tenant ID"
+            }
+        },
+        "clientId": {
+            "type": "string",
+            "metadata": {
+                "description": "Client ID for Microsoft Defender for Endpoint API authentication"
+            }
+        },
+        "workspaceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure Sentinel Workspace ID (optional)"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "[parameters('location')]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "Tenant_ID": {
+                            "defaultValue": "[parameters('tenantId')]",
+                            "type": "String"
+                        },
+                        "Client_ID": {
+                            "defaultValue": "[parameters('clientId')]",
+                            "type": "String"
+                        },
+                        "Workspace_ID": {
+                            "defaultValue": "[parameters('workspaceId')]",
+                            "type": "String"
+                        },
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "When_a_HTTP_request_is_received": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "machineid": {
+                                            "type": "string"
+                                        },
+                                        "machineName": {
+                                            "type": "string"
+                                        },
+                                        "incident_id": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Initialize_variables": {
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "LocationasArray",
+                                        "type": "array"
+                                    }
+                                ]
+                            },
+                            "runAfter": {}
+                        },
+                        "Get_secret": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['keyvault']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/secrets/@{encodeURIComponent('MDR-ScanMachine')}/value"
+                            },
+                            "runAfter": {
+                                "Initialize_variables": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "GraphAPI_Login": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://login.microsoftonline.com/@{parameters('Tenant_ID')}/oauth2/v2.0/token",
+                                "method": "POST",
+                                "headers": {
+                                    "Content-Type": "application/x-www-form-urlencoded"
+                                },
+                                "queries": {
+                                    "client_id": "@{parameters('Client_ID')}",
+                                    "client_secret": "@{body('Get_secret')?['value']}",
+                                    "grant_type": "client_credentials",
+                                    "scope": "https://api.securitycenter.microsoft.com/.default"
+                                },
+                                "body": "client_id=@{parameters('Client_ID')}&scope=https%3A%2F%2Fapi.securitycenter.microsoft.com%2F.default&client_secret=@{body('Get_secret')?['value']}&grant_type=client_credentials"
+                            },
+                            "runAfter": {
+                                "Get_secret": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "ScanMachine": {
+                            "type": "Http",
+                            "inputs": {
+                                "uri": "https://api.security.microsoft.com/api/machines/@{triggerBody()?['machineid']}/runAntiVirusScan",
+                                "method": "POST",
+                                "headers": {
+                                    "Authorization": "Bearer @{body('GraphAPI_Login')['access_token']}",
+                                    "Content-Type": "application/json"
+                                },
+                                "body": {
+                                    "Comment": "Antivirus scan initiated due to security incident",
+                                    "ScanType": "Quick"
+                                }
+                            },
+                            "runAfter": {
+                                "GraphAPI_Login": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "PlaceholderforSubject": {
+                            "type": "Compose",
+                            "inputs": "Conosco - Antivirus Scan Initiated due to Security Incident",
+                            "runAfter": {
+                                "ScanMachine": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "PlaceHolderforMessage": {
+                            "type": "Compose",
+                            "inputs": "An antivirus scan has been initiated on Machine: @{triggerBody()?['machineName']} as part of Conosco SOC's autoremediation. The SOC should monitor scan results and related activity.",
+                            "runAfter": {
+                                "PlaceholderforSubject": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Response": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 200,
+                                "body": {
+                                    "status": "success"
+                                }
+                            },
+                            "runAfter": {
+                                "PlaceHolderforMessage": [
+                                    "Succeeded"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {}
+                    }
+                }
+            }
+        }
+    ]
+}
