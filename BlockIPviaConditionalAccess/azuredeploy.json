@@ -4,6 +4,7 @@
     "parameters": {
         "logicAppName": {
             "type": "string",
+            "defaultValue": "BlockIPviaConditionalAccess",
             "metadata": {
                 "description": "Name of the Logic App"
             }
@@ -17,23 +18,20 @@
         },
         "tenantId": {
             "type": "string",
-            "defaultValue": "4ccdd9df-c201-4d7b-b4b5-419eb462fdd5",
             "metadata": {
                 "description": "Azure AD Tenant ID"
             }
         },
         "clientId": {
             "type": "string",
-            "defaultValue": "352a4e02-cc2b-4e95-8702-97f8b91e3569",
             "metadata": {
                 "description": "Client ID for Microsoft Graph API authentication"
             }
         },
         "workspaceId": {
             "type": "string",
-            "defaultValue": "0d5eeaad-cb89-457a-ae38-d182066dd724",
             "metadata": {
-                "description": "Azure Sentinel Workspace ID"
+                "description": "Azure Sentinel Workspace ID (optional)"
             }
         }
     },
@@ -99,12 +97,20 @@
                                     }
                                 },
                                 "method": "get",
-                                "path": "/secrets/@{encodeURIComponent('MonthlySOCReport')}/value"
+                                "path": "/secrets/@{encodeURIComponent('BlockIPviaConditionalAccess')}/value"
                             },
                             "runAfter": {
                                 "InitializeNamedLocationID": [
                                     "Succeeded"
                                 ]
+                            },
+                            "runtimeConfiguration": {
+                                "secureData": {
+                                    "properties": [
+                                        "inputs",
+                                        "outputs"
+                                    ]
+                                }
                             }
                         },
                         "GraphAPI_Login": {
@@ -116,12 +122,12 @@
                                     "Content-Type": "application/x-www-form-urlencoded"
                                 },
                                 "queries": {
-                                    "client_id": "[parameters('clientId')]",
+                                    "client_id": "[parameters('Client_ID')]",
                                     "client_secret": "@{body('Get_secret')?['value']}",
                                     "grant_type": "client_credentials",
                                     "scope": "https://graph.microsoft.com/.default"
                                 },
-                                "body": "client_id=[parameters('clientId')]&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&client_secret=@{body('Get_secret')?['value']}&grant_type=client_credentials"
+                                "body": "client_id=[parameters('Client_ID')]&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&client_secret=@{body('Get_secret')?['value']}&grant_type=client_credentials"
                             },
                             "runAfter": {
                                 "Get_secret": [
@@ -132,88 +138,6 @@
                                 "contentTransfer": {
                                     "transferMode": "Chunked"
                                 }
-                            }
-                        },
-                        "Send_an_email_(V2)": {
-                            "type": "ApiConnection",
-                            "inputs": {
-                                "host": {
-                                    "connection": {
-                                        "name": "@parameters('$connections')['office365_1']['connectionId']"
-                                    }
-                                },
-                                "method": "post",
-                                "body": {
-                                    "To": "soc@conosco.com",
-                                    "Subject": "Conosco - User account disabled due to a security incident.",
-                                    "Body": "<p class=\"editor-paragraph\">User account @{triggerBody()?['account']} has been disabled as part of Conosco SOC's autoremediation. The account should only be enabled after all remediation steps have been successful.</p>"
-                                },
-                                "path": "/v2/Mail"
-                            },
-                            "runAfter": {
-                                "For_each": [
-                                    "Succeeded"
-                                ]
-                            }
-                        },
-                        "Post_message_in_a_chat_or_channel": {
-                            "type": "ApiConnection",
-                            "inputs": {
-                                "host": {
-                                    "connection": {
-                                        "name": "@parameters('$connections')['teams']['connectionId']"
-                                    }
-                                },
-                                "method": "post",
-                                "body": {
-                                    "recipient": {
-                                        "groupId": "aa931da4-0d98-4d13-9d9e-a74397d3f03b",
-                                        "channelId": "19:cca12820b0134ec495ce6cf38724808f@thread.tacv2"
-                                    },
-                                    "messageBody": "<p class=\"editor-paragraph\"><b><strong class=\"editor-text-bold\">Conosco - User account disabled due to a security incident.</strong></b><br><br>User account @{triggerBody()?['account']} has been disabled as part of Conosco SOC's autoremediation. The account should only be enabled after all remediation steps have been successful.</p>"
-                                },
-                                "path": "/beta/teams/conversation/message/poster/Flow bot/location/@{encodeURIComponent('Channel')}"
-                            },
-                            "runAfter": {
-                                "Send_an_email_(V2)": [
-                                    "Succeeded"
-                                ]
-                            }
-                        },
-                        "Add_comment_to_incident_(V3)": {
-                            "type": "ApiConnection",
-                            "inputs": {
-                                "host": {
-                                    "connection": {
-                                        "name": "@parameters('$connections')['azuresentinel-1']['connectionId']"
-                                    }
-                                },
-                                "method": "post",
-                                "body": {
-                                    "incidentArmId": "@triggerBody()?['incident_id']",
-                                    "message": "<p class=\"editor-paragraph\">User account @{triggerBody()?['account']} has been disabled as part of Conosco SOC's autoremediation. The account should only be enabled after all remediation steps have been successful.</p>"
-                                },
-                                "path": "/Incidents/Comment"
-                            },
-                            "runAfter": {
-                                "Post_message_in_a_chat_or_channel": [
-                                    "Succeeded"
-                                ]
-                            }
-                        },
-                        "Response": {
-                            "type": "Response",
-                            "kind": "Http",
-                            "inputs": {
-                                "statusCode": 200,
-                                "body": {
-                                    "status": "success"
-                                }
-                            },
-                            "runAfter": {
-                                "Add_comment_to_incident_(V3)": [
-                                    "Succeeded"
-                                ]
                             }
                         },
                         "GetNamedLocations": {
@@ -311,7 +235,7 @@
                                                 "uri": "https://graph.microsoft.com/beta/identity/conditionalAccess/namedLocations/@{variables('NamedLocationID')}",
                                                 "method": "PATCH",
                                                 "headers": {
-                                                    "Authorization": "Bearer @{body('GraphAPILoginAgain')['access_token']}",
+                                                    "Authorization": "Bearer @{body('GraphAPI_Login')['access_token']}",
                                                     "Content-Type": "application/json"
                                                 },
                                                 "body": {
@@ -347,61 +271,9 @@
                                 }
                             },
                             "runAfter": {
-                                "GraphAPILoginAgain": [
-                                    "Succeeded"
-                                ]
-                            }
-                        },
-                        "GraphAPILoginAgain": {
-                            "type": "Http",
-                            "inputs": {
-                                "uri": "https://login.microsoftonline.com/@{parameters('Tenant_ID')}/oauth2/v2.0/token",
-                                "method": "POST",
-                                "headers": {
-                                    "Content-Type": "application/x-www-form-urlencoded"
-                                },
-                                "queries": {
-                                    "client_id": "[parameters('clientId')]",
-                                    "client_secret": "@{body('Get_secret_Again')?['value']}",
-                                    "grant_type": "client_credentials",
-                                    "scope": "https://graph.microsoft.com/.default"
-                                },
-                                "body": "client_id=[parameters('clientId')]&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&client_secret=@{body('Get_secret_Again')?['value']}&grant_type=client_credentials"
-                            },
-                            "runAfter": {
-                                "Get_secret_Again": [
-                                    "Succeeded"
-                                ]
-                            },
-                            "runtimeConfiguration": {
-                                "contentTransfer": {
-                                    "transferMode": "Chunked"
-                                }
-                            }
-                        },
-                        "Get_secret_Again": {
-                            "type": "ApiConnection",
-                            "inputs": {
-                                "host": {
-                                    "connection": {
-                                        "name": "@parameters('$connections')['keyvault-1']['connectionId']"
-                                    }
-                                },
-                                "method": "get",
-                                "path": "/secrets/@{encodeURIComponent('MDR-BlockIP')}/value"
-                            },
-                            "runAfter": {
                                 "GetNamedLocations": [
                                     "Succeeded"
                                 ]
-                            },
-                            "runtimeConfiguration": {
-                                "secureData": {
-                                    "properties": [
-                                        "inputs",
-                                        "outputs"
-                                    ]
-                                }
                             }
                         },
                         "InitializeNamedLocationID": {
@@ -416,6 +288,39 @@
                             },
                             "runAfter": {
                                 "InitializeArray": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "PlaceholderforSubject": {
+                            "type": "Compose",
+                            "inputs": "SOC Automation - IP address blocked due to a Security Incident",
+                            "runAfter": {
+                                "For_each": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "PlaceHolderforMessage": {
+                            "type": "Compose",
+                            "inputs": "The IP Address @{triggerBody()?['ipaddress']} has been added to a blocklist as part of the SOC's autoremediation. The IP Address should only be removed from the blocklist if the incident is a false positive.",
+                            "runAfter": {
+                                "PlaceholderforSubject": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Response": {
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 200,
+                                "body": {
+                                    "status": "success"
+                                }
+                            },
+                            "runAfter": {
+                                "PlaceHolderforMessage": [
                                     "Succeeded"
                                 ]
                             }
