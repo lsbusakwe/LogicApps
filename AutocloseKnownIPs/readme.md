@@ -1,8 +1,8 @@
 # AutoClose Known IPs
 
-**Author**: Lungelo Shaun Busakwe
+**Author**: Cameron J Sheosunker
 
-For any technical questions, please contact [lungelo.busakwe@conosco.com](mailto:lungelo.busakwe@conosco.com).
+For any technical questions, please contact [cameron.sheosunker@conosco.com](mailto:cameron.sheosunker@conosco.com).
 
 Deploy this Logic App to Azure:
 
