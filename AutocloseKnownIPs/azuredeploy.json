@@ -1,0 +1,157 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "type": "string",
+            "defaultValue": "MachineScan",
+            "metadata": {
+                "description": "Name of the Logic App"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Azure region for the Logic App"
+            }
+        },
+        "tenantId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure AD Tenant ID"
+            }
+        },
+        "clientId": {
+            "type": "string",
+            "metadata": {
+                "description": "Client ID for Microsoft Graph API authentication"
+            }
+        },
+        "workspaceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Azure Sentinel Workspace ID (optional)"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "[parameters('location')]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "When_a_HTTP_request_is_received": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "object": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string"
+                                                },
+                                                "properties": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "relatedEntities": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "id": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "PlaceholderforKnownIPs": {
+                            "type": "Compose",
+                            "inputs": [
+                                {
+                                    "Name": "TrustedServer1",
+                                    "IP Address": "192.168.1.100"
+                                },
+                                {
+                                    "Name": "TrustedServer2",
+                                    "IP Address": "10.0.0.50"
+                                }
+                            ],
+                            "runAfter": {}
+                        },
+                        "For_each": {
+                            "type": "Foreach",
+                            "foreach": "@triggerBody()?['object']?['properties']?['relatedEntities']",
+                            "actions": {
+                                "Condition": {
+                                    "type": "If",
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@items('For_each')?['id']",
+                                                    "@item()['IP Address']"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "actions": {
+                                        "PlaceholderforMessage": {
+                                            "type": "Compose",
+                                            "inputs": "IP @{item()['IP Address']} is a known IP: @{item()['Name']}. Incident @{triggerBody()?['object']?['id']} will be closed.",
+                                            "runAfter": {}
+                                        }
+                                    },
+                                    "else": {
+                                        "actions": {}
+                                    },
+                                    "runAfter": {}
+                                }
+                            },
+                            "runAfter": {
+                                "PlaceholderforKnownIPs": [
+                                    "Succeeded"
+                                ]
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {}
+                    }
+                }
+            }
+        }
+    ]
+}
